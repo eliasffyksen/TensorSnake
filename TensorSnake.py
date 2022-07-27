@@ -6,25 +6,30 @@ from timeit import timeit
 class TensorSnake(nn.Module):
   board_size: int
 
-  def __init__(self, board_size, games):
+  def __init__(self, board_size):
     super().__init__()
     self.board_size = board_size
+    self.register_buffer( 'pos_prev', t.tensor(0))
+    self.register_buffer('pos_cur', t.tensor(0))
+    self.register_buffer('idxs', t.tensor(0))
 
-    self.register_buffer(
-      'pos_prev',
-      t.tensor([[board_size // 2 - 1] * 2])
-        .repeat((games, 1))
-    )
-    self.register_buffer('pos_cur', self.pos_prev + t.tensor([0, 1]))
-    self.register_buffer('idxs', t.arange(games, dtype=t.long))
+    self.register_buffer('state', t.tensor(0))
 
-    self.register_buffer('state', t.zeros((games, board_size, board_size), dtype=t.int8))
+  @t.jit.export
+  def init(self, games: int):
+    self.pos_prev = t.tensor([[self.board_size // 2 - 1] * 2]) \
+        .repeat((games, 1)).cuda()
+    self.pos_cur = self.pos_prev + t.tensor([0, 1]).cuda()
+    self.idxs = t.arange(games, dtype=t.long).cuda()
+
+    self.state = t.zeros((games, self.board_size, self.board_size), dtype=t.int8).cuda()
     self.state[self.idxs, self.pos_prev[:,0], self.pos_prev[:,1]] = 1
     self.state[self.idxs, self.pos_cur[:,0],  self.pos_cur[:,1] ] = 2
-    food = (self.state == 0).flatten(1).to(t.float).multinomial(1).squeeze()
-    food_x = t.div(food, board_size, rounding_mode='trunc')
-    food_y = food % board_size
+    food = (self.state == 0).flatten(1).to(t.float16).multinomial(1).squeeze()
+    food_x = t.div(food, self.board_size, rounding_mode='trunc')
+    food_y = food % self.board_size
     self.state[self.idxs, food_x, food_y] = -1
+
 
   def forward(self, action) -> t.Tensor:
     pos_next = self.pos_cur - self.pos_prev
@@ -51,7 +56,7 @@ class TensorSnake(nn.Module):
     feeding = self.state[self.idxs, pos_next[:,0], pos_next[:,1]] == -1
 
     self.state[dead] = 0
-    pos = t.tensor([self.board_size // 2] * 2)
+    pos = t.tensor([self.board_size // 2] * 2, device='cuda:0')
     pos[1] -= 2
     self.pos_prev[dead] = pos
     self.state[dead,pos[0],pos[1]] = 1
@@ -63,7 +68,7 @@ class TensorSnake(nn.Module):
     self.state[dead,pos[0],pos[1]] = 1
 
     spawn_food = dead | feeding
-    food = (self.state[spawn_food] == 0).flatten(1).to(t.float).multinomial(1).squeeze()
+    food = (self.state[spawn_food] == 0).flatten(1).to(t.float16).multinomial(1).squeeze()
     food_x = t.div(food, self.board_size, rounding_mode='trunc')
     food_y = food % self.board_size
     self.state[spawn_food, food_x, food_y] = -1
@@ -79,12 +84,16 @@ class TensorSnake(nn.Module):
 
     return self.state
 
-snake_count = 2 ** 22
-ts = TensorSnake(8, snake_count)
-ts_jit = t.jit.script(ts.eval())
-ts_jit = t.jit.optimize_for_inference(ts_jit)
-
+print('building')
+snake_count = 32 * 10 ** 6
+ts = TensorSnake(8)
+# ts = t.jit.script(ts)
+# ts = t.jit.optimize_for_inference(ts)
+ts = ts.cuda()
+print('init...')
+ts.init(snake_count)
+print('running')
 
 for _ in range(20):
-  actions = t.randint(0,2,(snake_count,))
-  print(timeit(lambda: ts_jit(actions), number=1))
+  actions = t.randint(0,2,(snake_count,)).cuda()
+  print(timeit(lambda: ts(actions), number=1))
