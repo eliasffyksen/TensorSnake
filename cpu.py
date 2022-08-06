@@ -3,7 +3,7 @@ import torch as t
 from timeit import timeit
 
 print('building')
-snake_count = 33 * 10 ** 6
+snake_count = 35 * 10 ** 6
 ts = TensorSnake(8, float_type=t.float64)
 ts = t.jit.script(ts)
 
