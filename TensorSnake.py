@@ -5,6 +5,7 @@ from timeit import timeit
 
 class TensorSnake(nn.Module):
   board_size: int
+  games: int
   float_type: t.dtype
 
   def __init__(self, board_size, device='cpu', float_type=t.float):
@@ -30,6 +31,7 @@ class TensorSnake(nn.Module):
   @t.jit.export
   def init(self, games: int):
     device = self.state.device
+    self.games = games
     self.pos_last = t.tensor(
       [0,0],
       device=device
@@ -117,5 +119,7 @@ class TensorSnake(nn.Module):
     self.state[dead,0,1] = 3
     self.state[dead,0,2] = 1
 
-    return self.state
-
+    reward = t.zeros((self.games,), device=device)
+    reward[feeding] = 10
+    reward[dead] = -100
+    return reward

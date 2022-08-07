@@ -1,6 +1,7 @@
 from TensorSnake import TensorSnake
 import torch as t
 from timeit import timeit
+import matplotlib.pyplot as plt
 
 print('building')
 snake_count = 35 * 10 ** 6
