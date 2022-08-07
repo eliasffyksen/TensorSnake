@@ -4,13 +4,11 @@ import matplotlib.pyplot as plt
 from timeit import timeit
 
 class TensorSnake(nn.Module):
-  board_size: int
   games: int
   float_type: t.dtype
 
   def __init__(self, board_size, device='cpu', float_type=t.float):
     super().__init__()
-    self.board_size = board_size
     self.float_type = t.float
     self.register_buffer('pos_cur', t.tensor(0))
     self.register_buffer('pos_last', t.tensor(0))
@@ -25,6 +23,7 @@ class TensorSnake(nn.Module):
       [ 1,  0],
       [ 0, -1],
     ]))
+    self.register_buffer('board_size', t.tensor(board_size, device=device))
     self.to(device=device)
 
 
@@ -73,7 +72,7 @@ class TensorSnake(nn.Module):
     ] = action_dirs
 
     pos_next = self.pos_cur + self.dirs[action_dirs.to(t.int64)]
-    pos_next %= t.tensor(self.board_size, device=device)
+    pos_next %= self.board_size
     self.pos_cur = pos_next
 
     dead = self.state[
@@ -84,13 +83,13 @@ class TensorSnake(nn.Module):
 
     feeding = (pos_next == self.pos_food).all(1)
 
-    pos_next_last = self.pos_last[~feeding] + self.dirs[
+    pos_next_last = (self.pos_last[~feeding] + self.dirs[
       self.state[
         ~feeding,
         self.pos_last[~feeding,0],
         self.pos_last[~feeding,1]
       ].to(t.int64)
-    ]
+    ]) % self.board_size
     self.state[
       ~feeding,
       self.pos_last[~feeding,0],
@@ -118,6 +117,12 @@ class TensorSnake(nn.Module):
     self.state[dead,0,0] = 3
     self.state[dead,0,1] = 3
     self.state[dead,0,2] = 1
+    self.pos_last[dead,0] = 0
+    self.pos_last[dead,1] = 0
+    self.pos_cur[dead,0] = 0
+    self.pos_cur[dead,1] = 1
+    self.pos_food[dead,0] = 0
+    self.pos_food[dead,1] = 2
 
     reward = t.zeros((self.games,), device=device)
     reward[feeding] = 10
